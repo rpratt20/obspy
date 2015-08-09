@@ -104,7 +104,7 @@ class Parser(object):
         self.stations = []
         # if a file name is given, read it directly to the parser object
         if data:
-            self.read(data)
+            self.read(data.decode())
 
     def __str__(self):
         """

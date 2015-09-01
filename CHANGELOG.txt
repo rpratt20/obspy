@@ -20,6 +20,9 @@ master:
  - obspy.imaging:
    * Experimental support for Cartopy when plotting maps. Use the `method`
      argument to functions that plot maps to select between Basemap or Cartopy.
+ - obspy.io.kml:
+   * New module for Google KML output of Inventory and Catalog objects
+     (e.g. for use in Google Earth)
  - obspy.io.mseed:
    * Upgrade to libmseed 2.16
  - obspy.io.shapefile:

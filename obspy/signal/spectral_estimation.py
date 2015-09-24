@@ -675,10 +675,63 @@ class PPSD(object):
     def hist_stack(self):
         return self.get_histogram()[0]
 
-    def get_histogram(self, starttime=None, endtime=None):
+    def get_histogram(self, starttime=None, endtime=None, time_of_day=None):
+        """
+        Return 2D histogram stack for selected start- and endtime and time of
+        day.
+
+        :type starttime: :class:`~obspy.core.utcdatetime.UTCDateTime`
+        :param starttime: If set, data before the specified time is excluded
+            from the returned stack.
+        :type endtime: :class:`~obspy.core.utcdatetime.UTCDateTime`
+        :param starttime: If set, data after the specified time is excluded
+            from the returned stack.
+        :type time_of_day: list of tuples of two float
+        :param time_of_day: If set, restricts the data that is included
+            in the stack by time of day. For example, when using
+            `time_of_day=[(0, 2), (22, 24)]`, only individual spectra
+            that have a starttime in between 10pm and 2am are used in the stack
+            (restrictive night time stack). Note that time of day is specified
+            in UTC (time of day might have to be adapted to daylight saving
+            time). Also note that this setting filters only by starttime of the
+            used psd time slice, so the length of individual slices (set at
+            initialization:
+            :meth:`PPSD(..., ppsd_length=XXX, ...) <PPSD.__init__>` in seconds)
+            has to be taken into consideration (e.g. with a `ppsd_length` of
+            one hour and a `time_of_day` restriction to 10pm-2am
+            actually includes data from 10pm-3am).
+        """
+        starttime = starttime
+        endtime = endtime
         hist_stack = None
+        xedges = None
+        yedges = None
         hist_count = 0
-        for spec_octaves in self._spec_octaves:
+        used_times = []
+        unused_times = []
+
+        for time, spec_octaves in zip(self._times_used, self._spec_octaves):
+            # check if psd piece should be used or not,
+            # based on starttime of psd piece
+            if starttime is not None and time < starttime.timestamp:
+                unused_times.append(time)
+                continue
+            if endtime is not None and time > endtime.timestamp:
+                unused_times.append(time)
+                continue
+            if time_of_day is not None:
+                for start, end in time_of_day:
+                    time_utcdt = UTCDateTime(time)
+                    time_of_day_ = (time_utcdt.hour +
+                                    time_utcdt.minute / 60.0 +
+                                    time_utcdt.second / 3600.0 +
+                                    time_utcdt.microsecond / 3600.0 / 1e6)
+                    if time_of_day_ >= start and time_of_day_ <= end:
+                        break
+                else:
+                    unused_times.append(time)
+                    continue
+
             hist, xedges, yedges = np.histogram2d(
                 self.per_octaves,
                 spec_octaves, bins=(self.period_bins, self.spec_bins))
@@ -691,8 +744,9 @@ class PPSD(object):
                 # only during first run initialize stack with first histogram
                 hist_stack = hist
             hist_count += 1
+            used_times.append(time)
 
-        return hist_stack, hist_count, xedges, yedges
+        return hist_stack, hist_count, xedges, yedges, used_times, unused_times
 
     @staticmethod
     def _cumulative_histogram(hist):
@@ -780,7 +834,7 @@ class PPSD(object):
         :returns: (periods, percentile_values)
         """
         if hist_cum is None:
-            hist_cum, _, _, _ = self.get_histogram()
+            hist_cum, _, _, _, _, _ = self.get_histogram()
             hist_cum = self._cumulative_histogram(hist_cum)
         # go to percent
         percentile = percentile / 100.0
@@ -804,7 +858,7 @@ class PPSD(object):
         :returns: (periods, psd mode values)
         """
         if hist is None:
-            hist, hist_count, _, _ = self.get_histogram()
+            hist, hist_count, _, _, _, _ = self.get_histogram()
         db_bin_centers = (self.spec_bins[:-1] + self.spec_bins[1:]) / 2.0
         mode = db_bin_centers[hist.argmax(axis=1)]
         return (self.period_bin_centers, mode)
@@ -817,7 +871,7 @@ class PPSD(object):
         :returns: (periods, psd mean values)
         """
         if hist is None:
-            hist, hist_count, _, _ = self.get_histogram()
+            hist, hist_count, _, _, _, _ = self.get_histogram()
         db_bin_centers = (self.spec_bins[:-1] + self.spec_bins[1:]) / 2.0
         mean = (hist * db_bin_centers / hist_count).sum(axis=1)
         return (self.period_bin_centers, mean)
@@ -912,7 +966,7 @@ class PPSD(object):
              show_noise_models=True, grid=True, show=True,
              max_percentage=30, period_lim=(0.01, 179), show_mode=False,
              show_mean=False, cmap=obspy_sequential, cumulative=False,
-             cumulative_number_of_colors=20):
+             cumulative_number_of_colors=20, **kwargs):
         """
         Plot the 2D histogram of the current PPSD.
         If a filename is specified the plot is saved to this file, otherwise
@@ -962,8 +1016,8 @@ class PPSD(object):
         :param cumulative_number_of_colors: Number of discrete color shades to
             use, `None` for a continuous colormap.
         """
-        hist_stack, hist_count, xedges, yedges = \
-            self.get_histogram()
+        hist_stack, hist_count, xedges, yedges, used_times, unused_times = \
+            self.get_histogram(**kwargs)
         # check if any data has been added yet
         if not hist_count:
             msg = 'No data to plot'
@@ -1044,7 +1098,7 @@ class PPSD(object):
         ax.set_title(title)
 
         if show_coverage:
-            self.__plot_coverage(ax2)
+            self.__plot_coverage(ax2, (used_times, unused_times))
             # emulating fig.autofmt_xdate():
             for label in ax2.get_xticklabels():
                 label.set_ha("right")
@@ -1085,9 +1139,12 @@ class PPSD(object):
         else:
             plt.show()
 
-    def __plot_coverage(self, ax):
+    def __plot_coverage(self, ax, used_and_unused_times=(None, None)):
         """
         Helper function to plot coverage into given axes.
+
+        :type used_and_unused_times: tuple of two lists of POSIX timestamps
+            (`UTCDateTime.timestamp`)
         """
         self.__check_ppsd_length()
         ax.figure
@@ -1096,11 +1153,20 @@ class PPSD(object):
         ax.set_yticks([])
 
         # plot data coverage
-        starts = [date2num(t.datetime) for t in self.times_used]
-        ends = [date2num((t + self.ppsd_length).datetime)
-                for t in self.times_used]
-        for start, end in zip(starts, ends):
-            ax.axvspan(start, end, 0, 0.7, alpha=0.5, lw=0)
+        if used_and_unused_times is not (None, None):
+            used_times, unused_times = used_and_unused_times
+            for times, color in zip(used_and_unused_times, ["b", "0.3"]):
+                starts = [date2num(UTCDateTime(t).datetime) for t in times]
+                ends = [date2num((UTCDateTime(t) + self.ppsd_length).datetime)
+                        for t in times]
+                for start, end in zip(starts, ends):
+                    ax.axvspan(start, end, 0, 0.7, fc=color, alpha=0.5, lw=0)
+        else:
+            starts = [date2num(t.datetime) for t in self.times_used]
+            ends = [date2num((t + self.ppsd_length).datetime)
+                    for t in self.times_used]
+            for start, end in zip(starts, ends):
+                ax.axvspan(start, end, 0, 0.7, facecolor="b", alpha=0.5, lw=0)
         # plot data
         for start, end in self.times_data:
             start = date2num(start.datetime)

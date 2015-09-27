@@ -1129,15 +1129,12 @@ class PPSD(object):
             fig.ppsd.cmap = cmap
             fig.ppsd.label = label
             fig.ppsd.max_percentage = max_percentage
+            fig.ppsd.grid = grid
             if max_percentage is not None:
                 color_limits = (0, max_percentage)
                 fig.ppsd.color_limits = color_limits
 
             self._plot_histogram(fig=fig)
-
-            if grid:
-                ax.grid(b=grid, which="major")
-                ax.grid(b=grid, which="minor")
 
         if show_percentiles:
             # for every period look up the approximate place of the percentiles
@@ -1221,6 +1218,10 @@ class PPSD(object):
 
         if fig.ppsd.max_percentage is not None:
             ppsd.set_clim(*fig.ppsd.color_limits)
+
+        if fig.ppsd.grid:
+            ax.grid(b=True, which="major")
+            ax.grid(b=True, which="minor")
 
         if filename is not None:
             plt.savefig(filename)

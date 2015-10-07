@@ -44,6 +44,8 @@ import os
 from datetime import timedelta
 
 from obspy import Stream, read
+from obspy.core.util.misc import BAND_CODE
+
 
 SDS_FMTSTR = os.path.join(
     "{year}", "{network}", "{station}", "{channel}.{type}",
@@ -51,7 +53,8 @@ SDS_FMTSTR = os.path.join(
 
 
 def read_from_SDS(sds_root, seed_id, starttime, endtime, sds_type="D",
-                  format="MSEED", cleanup_merge=True):
+                  format="MSEED", cleanup_merge=True, fileborder_seconds=30,
+                  fileborder_samples=5000):
     """
     Read data from a local SeisComP Data Structure (SDS) directory tree.
 
@@ -84,30 +87,36 @@ def read_from_SDS(sds_root, seed_id, starttime, endtime, sds_type="D",
         msg = ("'endtime' must be after 'starttime'.")
         raise ValueError(msg)
 
+    net, sta, loc, cha = seed_id.split(".")
+
     # SDS has data sometimes in adjacent days, so also try to read the
     # requested data from those files. Usually this is only a few seconds of
     # data after midnight, but for now we play safe here to catch all requested
     # data (and with MiniSEED - the usual SDS file format - we can use
     # starttime/endtime kwargs anyway to read only desired parts).
     year_doy = set()
-    t = starttime - timedelta(days=1.01)
-    t_max = endtime + timedelta(days=1.01)
+    # determine how far before starttime/after endtime we should check other
+    # dayfiles for the data
+    t_buffer = fileborder_samples / BAND_CODE.get(cha[:1], 20.0)
+    t_buffer = max(t_buffer, fileborder_seconds)
+    t = starttime - t_buffer
+    t_max = endtime + t_buffer
     # make a list of year/doy combinations that covers the whole requested
     # time window (plus day before and day after)
     while t < t_max:
         year_doy.add((t.year, t.julday))
         t += timedelta(days=1)
+    year_doy.add((t_max.year, t_max.julday))
 
     st = Stream()
-    net, sta, loc, cha = seed_id.split(".")
+    full_paths = set()
     for year, doy in year_doy:
         filename = SDS_FMTSTR.format(
             network=net, station=sta, location=loc, channel=cha, year=year,
             doy=doy, type=sds_type)
         full_path = os.path.join(sds_root, filename)
-        # check if any files match at all, read() raises an exception if not
-        if not glob.glob(full_path):
-            continue
+        full_paths = full_paths.union(glob.glob(full_path))
+    for full_path in full_paths:
         st += read(full_path, format=format, starttime=starttime,
                    endtime=endtime)
 

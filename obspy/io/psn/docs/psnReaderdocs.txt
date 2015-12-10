@@ -1,0 +1,75 @@
+obspy/psn provides read only for the PSN format Volume and  event file structures.  
+
+File structure can be found here:  http://psn.quake.net/psnformat4.html
+The registered IRIS network code for the PSN is AM.
+Standard PSN settings Azimuth: N = 0, E = 90, Z = 0, Incidence: N=90, E=90, Z=0, Unknown=-12345.
+Delay settings: If you are using my Amp / Filter board with a 10 Hz low-pass filter you should use a value 
+of around 50 milliseconds. For PSN-ACCEL and PSN-ADC24 boards running at 100 SPS or higher a 
+value of 20 milliseconds can be used.
+Information from WinSDR documentation.
+
+Specific notes:  The WinQuake calibration number is the reciprocal of the SAC PZ constant and requires
+a factor of 100 to get from cm/sec to meters/sec.  When transfering the WinQuake sensitivity to  
+trace.stats.calib the factor of 100 is automatically taken into account and the trace.plot() produces the correct plot. 
+
+If pole zero information is not added by your logging system it can be added to the trace using utilities found in the 
+SAC IO module as follows:
+from obspy import sac
+respf = 'C:\\PZ.txt'   #SAC format polezero file
+sac.attach_paz(correct[0], respf, tovel=False)  # Normal SAC pz changes to displacement
+or 
+with a RESP format file:
+from obspy import sac
+RESPB = 'C:\\RESP.AM.RPSD..MHZ'
+with open(RESPB, "r") as fpin:
+     attach_resp(correct[0], RESPB, todisp=False, tovel=False, torad=False,
+                tohz=False)   # Set switches as desired RESP file is velocity by default.
+
+PSN format includes a large number of statistics.  In the trace.stats the information is broken down as follows:
+
+correct[0].stats.calib            		correct[0].stats.longitude
+correct[0].stats.channel       		correct[0].stats.network
+correct[0].stats.npts                       	correct[0].stats.sampling_rate
+correct[0].stats.paz (see below)             	correct[0].stats.starttime
+correct[0].stats.phases (see below)     	correct[0].stats.startTimeOffset
+correct[0].stats.delta           		correct[0].stats.station
+correct[0].stats.elevation      		correct[0].stats.latitude        
+correct[0].stats.endtime       		correct[0].stats.processing
+correct[0].stats.event (see below) 	correct[0].stats.psn (see below)
+correct[0].stats.location       		correct[0].stats.logger (see below)           
+correct[0].stats.varHdrLength       
+ 
+correct[0].stats.psn.mean
+correct[0].stats.psn.compAzimuth      
+correct[0].stats.psn.compIncident      
+correct[0].stats.psn.compOrientation  
+correct[0].stats.psn.sampleCompression
+correct[0].stats.psn.sampleType
+correct[0].stats.psn.sensorType
+correct[0].stats.psn.setdefault
+correct[0].stats.psn.timeRefStatus
+correct[0].stats.psn.timeRefType
+correct[0].stats.psn.maximum
+correct[0].stats.psn.minimum          
+
+correct[0].stats.paz     NOTE:  In most cases this block will not be included.
+AttribDict({'sensitivity': 1.0, 'digitizer_gain': 1.0, 'seismometer_gain': 1.0, 'zeros': [0j, 0j, 0j, 0j], 'gain': 111911000.0,
+'poles': [(-1.876+1.261j), (-1.876-1.261j), (-27.768+27.768j), (-27.768-27.768j), (-0.05+0j)]})
+
+correct[0].stats.logger
+AttribDict({'filtering': 'IIR Filter BW HP Freq: 0.02 Hz  Poles: 2,IIR Filter BW LP Freq: 6 Hz  Poles: 4,
+IIR Filter BW HP Freq: 0.1 Hz  Poles: 6\x00', 'gain': 3162.0, 'seedloc': '\x00\x00\x00', 'Sensvolts': 0.108009,
+'ADvolts': 10.0, 'seednet': '\x11\x00\x00'})
+
+correct[0].stats.event  NOTE:  There can be more than one event in a file as shown below
+AttribDict({'2015-11-24T22:45:38.000000Z': AttribDict({u'Md': 0, 
+u'typeCode': '\x00', u'Ml': 0, u'agency': '\x00', u'Mw': 0, u'M_oth': 760, u'depth': 600.6, 
+u'other': 'M', u'flags': '\x00', u'longitude': -70.904, u'Ms': 0, u'latitude': -10.548, 
+u'quality': '\x00', u'Mb': 0}), '2015-11-24T22:50:53.000000Z': 
+AttribDict({u'Md': 0, u'typeCode': '\x00', u'Ml': 0, u'agency': '\x00', u'Mw': 0, u'M_oth': 760, 
+u'depth': 611.7, u'other': 'M', u'flags': '\x00', u'longitude': -71.023, 
+u'Ms': 0, u'latitude': -10.047, u'quality': '\x00', u'Mb': 0}), 
+'comments': 'M7.6 6600km from Mitchell_SD, 169km WNW of Iberia, Peru \x00'})
+
+correct[0].stats.phases: AttribDict({})   NOTE:  There can be more than one phase pick included.  
+Normally blank and not shown in stats however.
